@@ -5,6 +5,7 @@ import urllib.request
 
 app = Flask(__name__)
 
+# 일반 말풍선 출력 / message_list : json list형식
 def SendMessage(message_list):
     temp = {
         "version": "2.0",
@@ -14,6 +15,7 @@ def SendMessage(message_list):
     }
     return jsonify(temp)
 
+# 말풍선 + 바로가기 버튼 출력 / message_list, reply_list : json list형식
 def SendReply(message_list, reply_list):
     temp = {
         "version": "2.0",
@@ -24,6 +26,7 @@ def SendReply(message_list, reply_list):
     }
     return jsonify(temp)
 
+# text 을 담은 json 리턴 / 위에 두 메서드와 같이 씀
 def makeSimpleText(text):
     dataSend = {
         "simpleText": {
@@ -32,6 +35,7 @@ def makeSimpleText(text):
     }
     return dataSend
 
+# 워크넷 직업소개 OPEN API 호출
 def callAPI(code):
     api_key = 'WNJYIARSPD1Y41842SV5X2VR1HK'
     url_format = 'http://openapi.work.go.kr/opi/opi/opia/jobSrch.do?authKey={api_key}&returnType=XML&target=JOBDTL&jobGb=1&jobCd={jobCd}&dtlGb=1'
@@ -42,27 +46,29 @@ def callAPI(code):
 
     return tree
 
+# fallback 스킬, context에 따라 멘트 구별
 @app.route('/fallback', methods = ['post'])
 def fallback():
     req = request.get_json()
     context = req['contexts']
 
-    comment = ['무엇을 원하는지 잘 모르겠어요', '이해하기 어려워요', '제가 할 수 있는 일이 아니에요']
-
     if len(context) != 0:
-        if context[0]['name'] == 'check_career':
+        if context[0]['name'] == 'check_career': # 진로고민 분기 context
             return SendMessage([makeSimpleText('네/아니오로 다시 한번 대답해주세요')])
 
     i = random.randint(0, 2)
-    return SendMessage([makeSimpleText(comment[i])])
+    comment = ['무엇을 원하는지 잘 모르겠어요', '이해하기 어려워요', '제가 할 수 있는 일이 아니에요']
 
+    return SendMessage([makeSimpleText(comment[i])]) # 3가지 fallback 멘트중 하나 랜덤출력
+
+# 진로고민 분기 스킬 / 발화조건 => 대답 Entity
 @app.route('/career_branch', methods = ['post'])
 def career_branch():
     req = request.get_json()
     answer = req['action']
     answer = answer['detailParams']
     answer = answer['답변']
-    answer = answer['value']
+    answer = answer['value'] # 긍정 or 부정
 
     if answer == '긍정':
         return SendMessage([makeSimpleText('어떤 진로를 희망하고 있나요?')])
@@ -105,7 +111,7 @@ def career_branch():
     else:
         return SendMessage([makeSimpleText('예/아니오로 다시 대답해주세요.')])
 
-
+# 희망진로 스킬
 @app.route('/call_worknet', methods=['post'])
 def call_worknet():
     req = request.get_json()
