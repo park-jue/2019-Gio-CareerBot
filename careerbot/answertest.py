@@ -67,7 +67,8 @@ def fallback():
 
         if 'input_name' in context_list:
             firebase.patch('/User/' + Uid, {'name' : answer})
-            return firebase.get('/UI/start/input_age', None)
+            result = firebase.get('/UI/start/input_age', None)
+            return result
 
         if 'input_age' in context_list:
             return SendMessage([makeSimpleText("Asdfasdf")])
@@ -102,13 +103,10 @@ def get_information():
     context = req['contexts']
     Uid = req['userRequest']['user']['id']
 
-    context_list = []
-    for c in context:
-        context_list.append(c['name'])
+    age = req['userRequest']['utterance']
+    firebase.patch('/User/' + Uid, {'age' : age})
 
-    if 'input_age' in context_list:
-        age = req['action']['detailParams']['age']['value']
-        firebase.patch('/User/' + Uid, {'age' : age})
+    return SendMessage([makeSimpleText("")])
 
 # 진로고민 분기 스킬 / 발화조건 => 대답 Entity
 @app.route('/career_branch', methods = ['post'])
