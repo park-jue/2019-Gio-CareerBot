@@ -5,7 +5,7 @@ import xml.etree.ElementTree as ET
 import urllib.request
 
 app = Flask(__name__)
-firebase = firebase.FirebaseApplication("https://gio-careerbot.firebaseio.com/", None)
+firebase = firebase.FirebaseApplication("https://gio-careerbot-c1797.firebaseio.com/", None)
 
 # 일반 말풍선 출력 / message_list : json list형식
 def SendMessage(message_list):
