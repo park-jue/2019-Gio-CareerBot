@@ -65,14 +65,15 @@ def fallback():
         if 'check_career' in context_list: # 진로고민 분기 context
             return SendMessage([makeSimpleText('네/아니오로 다시 한번 대답해주세요')])
 
-        if 'input_name' in context_list:
+        elif 'input_name' in context_list: # 인적사항_입력 context
             firebase.patch('/User/' + Uid, {'name' : answer})
             result = firebase.get('/UI/start/input_age', None)
             return result
 
-        if 'input_age' in context_list:
-            return SendMessage([makeSimpleText("Asdfasdf")])
-
+        elif 'input_experience' in context_list: # 전공입력 후 인적사항 입력 끝!
+            firebase.patch('/User/' + Uid, {'experience': answer})
+            firebase.patch('/User/' + Uid, {'isNull' : 0}) # 인적사항이 다 입력되면 isNull == 0
+            return SendMessage([makeSimpleText("인적사항 입력이 끝났습니다!\n상담을 진행하시려면 아래 상담 시작하기 버튼을 눌러주세요.")])
 
     i = random.randint(0, 2)
     comment = ['무엇을 원하는지 잘 모르겠어요', '이해하기 어려워요', '제가 할 수 있는 일이 아니에요']
@@ -93,7 +94,7 @@ def start_bot():
        return jsonify(result)
 
     else:
-        result = firebase.get('UI/start/start_bot')
+        result = firebase.get('/UI/start/start_bot', None)
         return jsonify(result)
 
 
@@ -103,8 +104,19 @@ def get_information():
     context = req['contexts']
     Uid = req['userRequest']['user']['id']
 
-    age = req['userRequest']['utterance']
-    firebase.patch('/User/' + Uid, {'age' : age})
+    context_list = []
+    for c in context:
+        context_list.append(c['name'])
+
+    # 이름/ 직무경험은 fallback스킬로 받음
+
+    if 'input_sex' in context_list:  # 성별 입력 context 일경우
+        sex = req['action']['detailParams']['sex']['value']
+        firebase.patch('/User/' + Uid, {'sex' : sex})
+
+    else: # 나이 입력
+        age = req['userRequest']['utterance']
+        firebase.patch('/User/' + Uid, {'age' : age})
 
     return SendMessage([makeSimpleText("")])
 
