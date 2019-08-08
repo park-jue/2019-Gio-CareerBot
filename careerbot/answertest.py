@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
 from firebase import firebase
+import operator
 import random
 import xml.etree.ElementTree as ET
 import urllib.request
@@ -154,33 +155,49 @@ def call_worknet():
 @app.route('/check_interest', methods=['post'])
 def check_interest():
     req = request.get_json()
-    content = req['action']['detailParams']
+    Uid = req['userRequest']['user']['id']
+    context = req['contexts']
 
-    interest = []
-    result = ""
+    content = req['action']['detailParams']['number']['value']
+    index = req['action']['detailParams']['index']['value']
 
-    for key in content.keys():
-        if content[key]['value'] not in interest:
-            interest.append(content[key]['value'])
+    firebase.patch("/User/" + Uid + "/check_interest", { index: int(content) })
 
-    reply = []
-    for i in interest:
-        result = result + i + " "
+    if(context[0]['name'] == 'check_interest_6'):
+        result = firebase.get('/User/' + Uid + "/check_interest", None)
+        result_sort = sorted(result.items(), key=operator.itemgetter(1), reverse=True)
 
-        re = {
-            "messageText": i,
-            "action": "message",
-            "label": i
-        }
-        reply.append(re)
+        interest_list = []
 
-    comment = [makeSimpleText("흥미 검사 결과 " + result + "이 나왔습니다. 각 흥미에 대해 알고싶다면 아래 버튼을 눌러주세요")]
+        for r in result_sort:
+            if len(interest_list) >= 2:
+                if r[1] == result[interest_list[len(interest_list)-1]]:
+                    interest_list.append(r[0])
+                    continue
+                break
 
-    return SendReply(comment, reply)
+            interest_list.append(r[0])
+
+        reply = []
+        interest = ""
+        for i in interest_list:
+            interest = interest + i + " "
+
+            re = {
+                "messageText": i,
+                "action": "message",
+                "label": i
+            }
+            reply.append(re)
+
+        comment = [makeSimpleText("흥미 검사 결과 " + interest + "이 나왔습니다. 각 흥미에 대해 알고싶다면 아래 버튼을 눌러주세요")]
+
+        return SendReply(comment, reply)
+
+    return SendMessage([makeSimpleText("")])
 
 
-# 흥미검사 답변 스킬
-@app.route('/interest_result', methods=['post'])
+@app.route('/interest_result', methods = ['post'])
 def interest_result():
     req = request.get_json()
     content = req['action']['detailParams']
@@ -189,10 +206,8 @@ def interest_result():
 
     result = content['흥미검사']['value']
     result = makeSimpleText(comment[result])
-    quest = makeSimpleText("흥미있는 직업을 선택해주세요")
 
-    return SendMessage([result, quest])
-
+    return SendMessage([result])
 
 if __name__ == "__main__":
     app.run(host = '0.0.0.0', port=5000, debug=True)
