@@ -292,7 +292,7 @@ def calculate_job():
         max = 0
         rec_job = ""
         for i in range(0, 3):
-            if result[i]['score'] > 0:
+            if result[i]['score'] > max:
                 max = result[i]['score']
                 rec_job = result[i]['name']
 
