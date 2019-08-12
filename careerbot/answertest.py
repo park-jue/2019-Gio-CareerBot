@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 from firebase import firebase
 import operator
+import json
 import random
 import xml.etree.ElementTree as ET
 import urllib.request
@@ -168,15 +169,16 @@ def check_interest():
         result_sort = sorted(result.items(), key=operator.itemgetter(1), reverse=True)
 
         interest_list = []
-
         for r in result_sort:
             if len(interest_list) >= 2:
-                if r[1] == result[interest_list[len(interest_list)-1]]:
+                if r[1] == result[interest_list[len(interest_list) - 1]]:
                     interest_list.append(r[0])
                     continue
                 break
 
             interest_list.append(r[0])
+
+        firebase.patch('/User/' + Uid, {"interest" : interest_list})
 
         reply = []
         interest = ""
@@ -196,7 +198,7 @@ def check_interest():
 
     return SendMessage([makeSimpleText("")])
 
-
+# 흥미검사 결과 스킬
 @app.route('/interest_result', methods = ['post'])
 def interest_result():
     req = request.get_json()
@@ -207,7 +209,101 @@ def interest_result():
     result = content['흥미검사']['value']
     result = makeSimpleText(comment[result])
 
-    return SendMessage([result])
+    reply = []
+    re = {
+        "messageText": "뒤로",
+        "action": "block",
+        "blockId" : "5d4bb3988192ac0001b43e2e",
+        "label": "뒤로"
+    }
+    reply.append(re)
+
+    return SendReply([result], reply)
+
+# 흥미검사 결과 - 뒤로가기 스킬
+@app.route('/interest_back', methods = ['post'])
+def interest_back():
+    req = request.get_json()
+    Uid = req['userRequest']['user']['id']
+
+    interest_list = firebase.get('/User/' + Uid + "/interest", None)
+    reply = []
+    interest = ""
+    for i in interest_list:
+        interest = interest + i + " "
+
+        re = {
+            "messageText": i,
+            "action": "message",
+            "label": i
+        }
+        reply.append(re)
+
+    comment = [makeSimpleText("흥미 검사 결과 " + interest + "이 나왔습니다. 각 흥미유형을 보고 마음에 드는 직업 3가지를 입력해주세요.")]
+
+    return SendReply(comment, reply)
+
+# 흥미검사 _ 직업 선택
+@app.route('/select_job', methods = ['post'])
+def select_job():
+    req = request.get_json()
+    Uid = req['userRequest']['user']['id']
+    job = req['action']['detailParams']
+    i = 0
+
+    for i in range(0, 3):
+        name = "job_" + str(i+1)
+        firebase.patch('/User/' + Uid + "/cal_job", {i : {"name" : job[name]['value'], "score" : -1}})
+        i += 1
+
+    return SendMessage([makeSimpleText("")])
+
+# 흥미검사 _ 직업 점수 계산
+@app.route('/calculate_job', methods = ['post'])
+def calculate_job():
+    req = request.get_json()
+    Uid = req['userRequest']['user']['id']
+    context = req['contexts']
+    user = firebase.get('/User/' + Uid + "/name", None)
+
+    context_list = []
+    for c in context:
+        context_list.append(c['name'])
+
+    sum = 0
+    number = req['action']['detailParams']
+
+    for n in number.keys():
+        sum += int(json.loads(number[n]['value']))
+
+    next_job = ""
+    job = firebase.get('/User/' + Uid + '/cal_job', None)
+    for i in range(0, 3):
+        if job[i]["score"] == -1:
+            firebase.patch('/User/' + Uid + "/cal_job/" + str(i), {"score" : sum})
+
+            if 'calculate_3' not in context_list:
+                next_job = job[i+1]['name']
+
+            break
+
+    if 'calculate_3' in context_list: # 3번째 직업 점수 매겼을 경우
+        result = firebase.get('/User/' + Uid + '/cal_job', None)
+        max = 0
+        rec_job = ""
+        for i in range(0, 3):
+            if result[i]['score'] > 0:
+                max = result[i]['score']
+                rec_job = result[i]['name']
+
+        return SendMessage([makeSimpleText(user + "님께는 '" + rec_job + "'직업이 적합한 것 같아요.\n이 직업에 대한 정보를 찾아보시겠어요?")])
+
+    comment = []
+    comment.append(makeSimpleText("다음으로 " + next_job + "에 대한 점수를 매겨주세요."))
+    comment.append(makeSimpleText(firebase.get('/UI/interest_result/calculate_job', None)))
+
+    return SendMessage(comment)
+
 
 if __name__ == "__main__":
     app.run(host = '0.0.0.0', port=5000, debug=True)
