@@ -92,7 +92,6 @@ def start_bot():
 
     if isNull == None or isNull == 1:
        result = firebase.get('/UI/start/get_information', None)
-       firebase.patch('/User/' + Uid, {'isNull' : 1})
        return jsonify(result)
 
     else:
