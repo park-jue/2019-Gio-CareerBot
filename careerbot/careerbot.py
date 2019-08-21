@@ -184,7 +184,7 @@ def check_interest():
     del content['index']
 
     if len(content) != 0 :
-        content = content['number']['value']
+        content = json.loads(content['number']['value'])['amount']
         firebase.patch("/User/" + Uid + "/interest_inventory/check_interest", { index: int(content) })
 
     if context[0]['name'] == 'check_interest_6':
@@ -377,7 +377,7 @@ def job_calculate():
     number = req['action']['detailParams']
 
     for n in number.keys():
-        sum += int(json.loads(number[n]['value']))
+        sum += json.loads(number[n]['value'])['amount']
 
     job = firebase.get('/User/' + Uid + '/cal_job', None)
     next_job = ""
