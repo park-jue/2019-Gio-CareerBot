@@ -44,11 +44,23 @@ def callAPI(code):
     api_key = 'WNJYIARSPD1Y41842SV5X2VR1HK'
     url_format = 'http://openapi.work.go.kr/opi/opi/opia/jobSrch.do?authKey={api_key}&returnType=XML&target=JOBDTL&jobGb=1&jobCd={jobCd}&dtlGb=1'
 
+    if len(code) == 4:
+        code = '0' + code
+
     url = url_format.format(api_key=api_key, jobCd=str(code))
 
     tree = ET.parse(urllib.request.urlopen(url))
 
-    return tree
+    # 직무소개, 연봉
+    job_name = tree.findtext('jobSmclNm')
+    job_des = tree.findtext('jobSum').replace('한다.', '하는 ')
+    job_des = job_des.replace('\n', "")
+    job_sal = tree.findtext('sal').split('평균(50%) ')
+    job_sal = job_sal[1].split(',')[0]
+
+    job = job_name + "은(는) " + job_des + "직업으로 평균 연봉은 " + job_sal + "으로 조사되었습니다."
+
+    return job
 
 
 # fallback 스킬, context에 따라 멘트 구별
@@ -85,6 +97,8 @@ def fallback():
 
     return SendMessage([makeSimpleText(comment[i])]) # 3가지 fallback 멘트중 하나 랜덤출력
 
+
+
 # 챗봇 시작 스킬 / 인적사항이 없으면 인적사항 입력블록으로
 @app.route('/start', methods = ['post'])
 def start_bot():
@@ -102,6 +116,8 @@ def start_bot():
         return jsonify(result)
 
 
+
+# 인적사항 입력
 @app.route('/get_information', methods = ['post'])
 def get_information():
     req = request.get_json()
@@ -123,6 +139,8 @@ def get_information():
         firebase.patch('/User/' + Uid, {'age' : age})
 
     return SendMessage([makeSimpleText("")])
+
+
 
 # 분기 스킬 / 발화조건 => 대답 Entity
 @app.route('/branch', methods = ['post'])
@@ -153,19 +171,6 @@ def branch():
     return SendMessage([makeSimpleText('')])
 
 
-# 희망진로 스킬
-@app.route('/call_worknet', methods=['post'])
-def call_worknet():
-    req = request.get_json()
-    value = req['action']['detailParams']['직업분류']['value']
-
-    tree = callAPI(value)
-    dataSend = []
-    dataSend.append(makeSimpleText("직무 : " + tree.find('jobSum').text))
-    dataSend.append(makeSimpleText("되는 방법 : " + tree.find('way').text))
-
-    return SendMessage(dataSend)
-
 
 # 흥미검사 스킬
 @app.route('/check_interest', methods=['post'])
@@ -174,10 +179,13 @@ def check_interest():
     Uid = req['userRequest']['user']['id']
     context = req['contexts']
 
-    content = req['action']['detailParams']['number']['value']
+    content = req['action']['detailParams']
     index = req['action']['detailParams']['index']['value']
+    del content['index']
 
-    firebase.patch("/User/" + Uid + "/interest_inventory/check_interest", { index: int(content) })
+    if len(content) != 0 :
+        content = content['number']['value']
+        firebase.patch("/User/" + Uid + "/interest_inventory/check_interest", { index: int(content) })
 
     if context[0]['name'] == 'check_interest_6':
         result = firebase.get('/User/' + Uid + "/interest_inventory/check_interest", None)
@@ -213,6 +221,7 @@ def check_interest():
 
     return SendMessage([makeSimpleText("")])
 
+
 # 흥미검사 결과 스킬
 @app.route('/interest_result', methods = ['post'])
 def interest_result():
@@ -223,107 +232,13 @@ def interest_result():
 
     result = content['흥미검사']['value']
     result = makeSimpleText(comment[result])
+    qes = makeSimpleText('유형별 대표직업을 확인했습니다. 그중 마음에 드는 직업을 선택하셨나요??')
 
-    reply = []
-    re = {
-        "messageText": "뒤로",
-        "action": "block",
-        "blockId" : "5d4bb3988192ac0001b43e2e",
-        "label": "뒤로"
-    }
-    reply.append(re)
+    reply = firebase.get('/UI/result_branch/reply', None)
+    reply[2]['blockId'] = '5d43e2488192ac0001b40788'
 
-    return SendReply([result], reply)
+    return SendReply([result, qes], reply)
 
-# 흥미검사 결과 - 뒤로가기 스킬
-@app.route('/interest_back', methods = ['post'])
-def interest_back():
-    req = request.get_json()
-    Uid = req['userRequest']['user']['id']
-
-    interest_list = firebase.get('/User/' + Uid + "/interest_inventory/interest", None)
-    reply = []
-    interest = ""
-    for i in interest_list:
-        interest = interest + i + " "
-
-        re = {
-            "messageText": i,
-            "action": "message",
-            "label": i
-        }
-        reply.append(re)
-
-    comment_1 = makeSimpleText("흥미 검사 결과 " + interest + "이 나왔습니다. 각 흥미에 대해 알고싶다면 아래 버튼을 눌러주세요.")
-    comment_2 = makeSimpleText("유형별 대표직업을 확인했습니다. 그중 마음에 드는 직업을 선택하셨나요??")
-
-    return SendReply([comment_1, comment_2], reply)
-
-# 흥미검사 _ 직업 선택
-@app.route('/select_job', methods = ['post'])
-def select_job():
-    req = request.get_json()
-    Uid = req['userRequest']['user']['id']
-    job = req['action']['detailParams']
-    i = 0
-
-    for i in range(0, 3):
-        name = "job_" + str(i+1)
-        firebase.patch('/User/' + Uid + "/cal_job", {i : {"name" : job[name]['value'], "score" : -1}})
-        i += 1
-
-    return SendMessage([makeSimpleText("")])
-
-# 흥미검사 _ 직업 점수 계산
-@app.route('/calculate_job', methods = ['post'])
-def calculate_job():
-    req = request.get_json()
-    Uid = req['userRequest']['user']['id']
-    context = req['contexts']
-    user = firebase.get('/User/' + Uid + "/name", None)
-
-    context_list = []
-    for c in context:
-        context_list.append(c['name'])
-
-    sum = 0
-    number = req['action']['detailParams']
-
-    for n in number.keys():
-        sum += int(json.loads(number[n]['value']))
-
-    next_job = ""
-    job = firebase.get('/User/' + Uid + '/cal_job', None)
-    for i in range(0, 3):
-        if job[i]["score"] == -1:
-            firebase.patch('/User/' + Uid + "/cal_job/" + str(i), {"score" : sum})
-
-            if 'calculate_3' not in context_list:
-                next_job = job[i+1]['name']
-
-            break
-
-    if 'calculate_3' in context_list: # 3번째 직업 점수 매겼을 경우
-        result = firebase.get('/User/' + Uid + '/cal_job', None)
-        max = 0
-        rec_job = ""
-        for i in range(0, 3):
-            if result[i]['score'] > max:
-                max = result[i]['score']
-                rec_job = result[i]['name']
-
-        comment = []
-        comment.append(makeSimpleText("3가지 직업중 '" + rec_job + "'직업을 가장 선호하시는군요."))
-        comment.append(makeSimpleText("잘 결정하셨네요^^ " + user + "님은 잘하실 수 있을 겁니다. "))
-        comment.append(makeSimpleText("이 직업의 간단한 정보를 안내해 드릴게요"))
-
-        return SendMessage(comment)
-
-    comment = []
-    comment.append(makeSimpleText("다음으로 " + next_job + "에 대한 점수를 매겨주세요."))
-    comment.append(makeSimpleText(firebase.get('/UI/interest_result/calculate_job', None)))
-
-    return SendMessage(comment)
 
 # 성격검사 스킬
 @app.route('/check_MBTI', methods = ['post'])
@@ -353,11 +268,187 @@ def check_MBTI():
         career = makeSimpleText('추천직업으로는 ' + firebase.get('/UI/mbti/' + mbti + '/career', None) + '가 있어요')
         qes = makeSimpleText("성격유형별 대표직업을 확인했습니다. 그중 마음에 드는 직업을 선택하셨나요??")
 
-        return SendMessage([comment, career, qes])
+        reply = firebase.get("/UI/result_branch/reply", None)
+        del reply[2]
+
+        return SendReply([comment, career, qes], reply)
 
     return SendMessage([makeSimpleText('')])
 
 
+#가치관검사 스킬
+@app.route('/check_values', methods = ['post'])
+def check_values():
+    req = request.get_json()
+    Uid = req['userRequest']['user']['id']
+    values = req['action']['detailParams']
+
+    value_list = []
+    for v in values.keys():
+        value_list.append(values[v]['value'])
+
+    if len(value_list) != 0:
+        firebase.patch('/User/' + Uid, {'values' : value_list})
+
+    reply = []
+    value_list = firebase.get('/User/' + Uid + '/values', None)
+    for v in value_list:
+        re = {
+            "messageText": v,
+            "action": "message",
+            "label": v
+        }
+        reply.append(re)
+
+    comment = makeSimpleText("각 가치관에 대해 알고싶다면 아래 버튼을 눌러주세요.")
+
+    return SendReply([comment], reply)
+
+
+# 가치관검사 결과
+@app.route('/values_result', methods = ['post'])
+def values_result():
+    req = request.get_json()
+    value = req['action']['detailParams']['selected_value']['value']
+
+    comment = firebase.get('/UI/values/' + value, None)
+    des = makeSimpleText(value + "는 " + comment['description'] + "입니다.")
+    career = makeSimpleText("추천직업으로는 " + comment['career'] + "가 있습니다.")
+    qes = makeSimpleText("가치관유형별 대표직업을 확인했습니다. 그중 마음에 드는 직업을 선택하셨나요??")
+
+    reply = firebase.get('/UI/result_branch/reply', None)
+    reply[2]['blockId'] = '5d5baa868192ac00011eff67'
+
+    return SendReply([des, career, qes], reply)
+
+
+
+# 검사 후 _ 직업정보 출력(긍정)
+@app.route('/job_information', methods = ['post'])
+def job_information():
+    req = request.get_json()
+    Uid = req['userRequest']['user']['id']
+
+    job = req['action']['detailParams']['job']['origin']
+    code = req['action']['detailParams']['job']['value']
+    check = req['action']['detailParams']['check']['value']
+
+    firebase.patch('/User/' + Uid + '/rec_job', {'name': job, 'code': code})
+
+    comment = []
+    comment.append(makeSimpleText("더 알아보고 싶은 직업은 없으신가요? " + check + "만으로도 직업을 잘 결정하셨네요^^. 이 직업의 간단한 정보를 안내해 드릴게요"))
+    comment.append(makeSimpleText(callAPI(code)))
+
+    detail = firebase.get('/UI/career_result/detail_information', None)
+    comment.append(detail)
+
+    reply = firebase.get('/UI/career_result/next_button', None)
+
+    return SendReply(comment, [reply])
+
+
+
+# 검사 후 _ 직업 선택(부정)
+@app.route('/job_select', methods = ['post'])
+def job_select():
+    req = request.get_json()
+    Uid = req['userRequest']['user']['id']
+    job = req['action']['detailParams']
+
+    for i in range(0, 3):
+        name = "job_" + str(i+1)
+        firebase.patch('/User/' + Uid + "/cal_job", {i : {"name" : job[name]['origin'], "score" : -1, 'code' : job[name]['value']}})
+
+    return SendMessage([makeSimpleText("")])
+
+# 검사 후 _ 직업 점수 계산(부정)
+@app.route('/job_calculate', methods = ['post'])
+def job_calculate():
+    req = request.get_json()
+    Uid = req['userRequest']['user']['id']
+    context = req['contexts']
+    user = firebase.get('/User/' + Uid + "/name", None)
+
+    context_list = []
+    for c in context:
+        context_list.append(c['name'])
+
+    sum = 0
+    number = req['action']['detailParams']
+
+    for n in number.keys():
+        sum += int(json.loads(number[n]['value']))
+
+    job = firebase.get('/User/' + Uid + '/cal_job', None)
+    next_job = ""
+    for i in range(0, 3):
+        if job[i]["score"] == -1:
+            firebase.patch('/User/' + Uid + "/cal_job/" + str(i), {"score" : sum})
+
+            if 'calculate_3' not in context_list:
+                next_job = job[i+1]['name']
+
+            break
+
+    if 'calculate_3' in context_list: # 3번째 직업 점수 매겼을 경우
+        result = firebase.get('/User/' + Uid + '/cal_job', None)
+        max = 0
+        rec_job = ""
+        job_code = ""
+        for i in range(0, 3):
+            if result[i]['score'] > max:
+                max = result[i]['score']
+                rec_job = result[i]['name']
+                job_code = result[i]['code']
+
+        firebase.patch('/User/' + Uid + '/rec_job', {'name' : rec_job, 'code': job_code})
+
+        comment = []
+        comment.append(makeSimpleText("3가지 직업중 '" + rec_job + "' 직업을 가장 선호하시는군요. 잘 결정하셨네요^^ " + user + "님은 잘하실 수 있을 겁니다.\n\n이 직업의 간단한 정보를 안내해 드릴게요"))
+        comment.append(makeSimpleText(callAPI(job_code)))
+
+        detail = firebase.get('/UI/career_result/detail_information', None)
+        comment.append(detail)
+
+        reply = firebase.get('/UI/career_result/next_button', None)
+
+        return SendReply(comment, [reply])
+
+    comment = []
+    comment.append(makeSimpleText("다음으로 " + next_job + "에 대한 점수를 매겨주세요."))
+    comment.append(makeSimpleText(firebase.get('/UI/interest_result/calculate_job', None)))
+
+    return SendMessage(comment)
+
+
+# 검사 후 _ 코칭
+@app.route('/coaching', methods = ['post'])
+def coaching():
+    req = request.get_json()
+    Uid = req['userRequest']['user']['id']
+    context = req['contexts']
+    user = firebase.get('/User/' + Uid + "/name", None)
+
+    context_list = []
+    for c in context:
+        context_list.append(c['name'])
+
+    if 'totalcareer' in context_list:
+        comment = firebase.get('/UI/career_result/totalcareer', None)
+        job = firebase.get('/User/' + Uid + '/rec_job/name', None)
+
+        form = comment['template']['outputs'][0]['basicCard']['description']
+
+        comment['template']['outputs'][0]['basicCard']['description'] = form.format(user=user, career = job)
+
+    else:
+        comment = firebase.get('/UI/career_result/coaching', None)
+        form = comment['template']['outputs']
+
+        comment['template']['outputs'][0]['simpleText']['text'] = form[0]['simpleText']['text'].format(user = user)
+        comment['template']['outputs'][1]['simpleText']['text'] = form[1]['simpleText']['text'].format(user = user)
+
+    return jsonify(comment)
 
 
 if __name__ == "__main__":
