@@ -5,9 +5,32 @@ import json
 import random
 import xml.etree.ElementTree as ET
 import urllib.request
+import xmltodict
 
 app = Flask(__name__)
 firebase = firebase.FirebaseApplication("https://gio-careerbot-c1797.firebaseio.com/", None)
+
+
+# 전역변수
+req = ""
+Uid = ""
+context = ""
+context_list = []
+user = ""
+
+# 전역변수 초기화
+def init():
+    global req, Uid, context, context_list, user
+
+    req = request.get_json()
+    Uid = req['userRequest']['user']['id']
+    context = req['contexts']
+
+    context_list = []
+    for c in context:
+        context_list.append(c['name'])
+
+
 
 # 일반 말풍선 출력 템플릿 / message_list : json list형식
 def SendMessage(message_list):
@@ -40,25 +63,41 @@ def makeSimpleText(text):
     return dataSend
 
 # 워크넷 직업소개 OPEN API 호출
-def callAPI(code):
+def callAPI(code, detail):
     api_key = 'WNJYIARSPD1Y41842SV5X2VR1HK'
-    url_format = 'http://openapi.work.go.kr/opi/opi/opia/jobSrch.do?authKey={api_key}&returnType=XML&target=JOBDTL&jobGb=1&jobCd={jobCd}&dtlGb=1'
+    job = ""
 
-    if len(code) == 4:
-        code = '0' + code
+    if detail == True:
+        url_format = "http://openapi.work.go.kr/opi/opi/opia/korJobDicApi.do?authKey={api_key}&returnType=XML&target=dJobCD&startPage=1&display=10&srchType=K&keyword={jobCd}"
+        url = url_format.format(api_key=api_key, jobCd=code)
 
-    url = url_format.format(api_key=api_key, jobCd=str(code))
+        tree = xmltodict.parse(urllib.request.urlopen(url).encode('UTF8'))
+        tree = json.dumps(tree)
+        tree = json.loads(tree)
 
-    tree = ET.parse(urllib.request.urlopen(url))
+        if tree.has_key('message') == False:
+            for k in tree.keys():
+                if k == 'dJobList':
+                    job = job + k + "\n"
 
-    # 직무소개, 연봉
-    job_name = tree.findtext('jobSmclNm')
-    job_des = tree.findtext('jobSum').replace('한다.', '하는 ')
-    job_des = job_des.replace('\n', "")
-    job_sal = tree.findtext('sal').split('평균(50%) ')
-    job_sal = job_sal[1].split(',')[0]
+    else:
+        url_format = 'http://openapi.work.go.kr/opi/opi/opia/jobSrch.do?authKey={api_key}&returnType=XML&target=JOBDTL&jobGb=1&jobCd={jobCd}&dtlGb=1'
 
-    job = job_name + "은(는) " + job_des + "직업으로 평균 연봉은 " + job_sal + "으로 조사되었습니다."
+        if len(code) == 4:
+            code = '0' + code
+
+        url = url_format.format(api_key=api_key, jobCd=str(code))
+
+        tree = ET.parse(urllib.request.urlopen(url))
+
+        # 직무소개, 연봉
+        job_name = tree.findtext('jobSmclNm')
+        job_des = tree.findtext('jobSum').replace('한다.', '하는 ')
+        job_des = job_des.replace('\n', "")
+        job_sal = tree.findtext('sal').split('평균(50%) ')
+        job_sal = job_sal[1].split(',')[0]
+
+        job = job_name + "은(는) " + job_des + "직업으로 평균 연봉은 " + job_sal + "으로 조사되었습니다."
 
     return job
 
@@ -66,14 +105,8 @@ def callAPI(code):
 # fallback 스킬, context에 따라 멘트 구별
 @app.route('/fallback', methods = ['post'])
 def fallback():
-    req = request.get_json()
+    init()
     answer = req['userRequest']['utterance']
-    Uid = req['userRequest']['user']['id']
-    context = req['contexts']
-
-    context_list = []
-    for c in context:
-        context_list.append(c['name'])
 
     if len(context) != 0:
         if 'check_career' in context_list: # 진로고민 분기 context fallback
@@ -102,9 +135,7 @@ def fallback():
 # 챗봇 시작 스킬 / 인적사항이 없으면 인적사항 입력블록으로
 @app.route('/start', methods = ['post'])
 def start_bot():
-    req = request.get_json()
-    Uid = req['userRequest']['user']['id']
-
+    init()
     isNull = firebase.get('/User/' + Uid + '/isNull', None)
 
     if isNull == None or isNull == 1:
@@ -120,13 +151,7 @@ def start_bot():
 # 인적사항 입력
 @app.route('/get_information', methods = ['post'])
 def get_information():
-    req = request.get_json()
-    context = req['contexts']
-    Uid = req['userRequest']['user']['id']
-
-    context_list = []
-    for c in context:
-        context_list.append(c['name'])
+    init()
 
     # 이름/ 직무경험은 fallback스킬로 받음
 
@@ -145,13 +170,8 @@ def get_information():
 # 분기 스킬 / 발화조건 => 대답 Entity
 @app.route('/branch', methods = ['post'])
 def branch():
-    req = request.get_json()
+    init()
     answer = req['action']['detailParams']['답변']['value'] # 긍정 or 부정
-    context = req['contexts']
-
-    context_list = []
-    for c in context:
-        context_list.append(c['name'])
 
     if 'check_career' in context_list: # 진로_분기
         if answer == '긍정':
@@ -175,9 +195,7 @@ def branch():
 # 흥미검사 스킬
 @app.route('/check_interest', methods=['post'])
 def check_interest():
-    req = request.get_json()
-    Uid = req['userRequest']['user']['id']
-    context = req['contexts']
+    init()
 
     content = req['action']['detailParams']
     index = req['action']['detailParams']['index']['value']
@@ -225,7 +243,7 @@ def check_interest():
 # 흥미검사 결과 스킬
 @app.route('/interest_result', methods = ['post'])
 def interest_result():
-    req = request.get_json()
+    init()
     content = req['action']['detailParams']
 
     comment = firebase.get('/UI/interest_result/interest_list', None)
@@ -243,14 +261,7 @@ def interest_result():
 # 성격검사 스킬
 @app.route('/check_MBTI', methods = ['post'])
 def check_MBTI():
-    req = request.get_json()
-    Uid = req['userRequest']['user']['id']
-    context = req['contexts']
-    user = firebase.get('/User/' + Uid + "/name", None)
-
-    context_list = []
-    for c in context:
-        context_list.append(c['name'])
+    init()
 
     mbti = firebase.get('/User/' + Uid + '/MBTI', None)
 
@@ -279,8 +290,8 @@ def check_MBTI():
 #가치관검사 스킬
 @app.route('/check_values', methods = ['post'])
 def check_values():
-    req = request.get_json()
-    Uid = req['userRequest']['user']['id']
+    init()
+
     values = req['action']['detailParams']
 
     value_list = []
@@ -308,7 +319,7 @@ def check_values():
 # 가치관검사 결과
 @app.route('/values_result', methods = ['post'])
 def values_result():
-    req = request.get_json()
+    init()
     value = req['action']['detailParams']['selected_value']['value']
 
     comment = firebase.get('/UI/values/' + value, None)
@@ -326,8 +337,7 @@ def values_result():
 # 검사 후 _ 직업정보 출력(긍정)
 @app.route('/job_information', methods = ['post'])
 def job_information():
-    req = request.get_json()
-    Uid = req['userRequest']['user']['id']
+    init()
 
     job = req['action']['detailParams']['job']['origin']
     code = req['action']['detailParams']['job']['value']
@@ -337,7 +347,7 @@ def job_information():
 
     comment = []
     comment.append(makeSimpleText("더 알아보고 싶은 직업은 없으신가요? " + check + "만으로도 직업을 잘 결정하셨네요^^. 이 직업의 간단한 정보를 안내해 드릴게요"))
-    comment.append(makeSimpleText(callAPI(code)))
+    comment.append(makeSimpleText(callAPI(code, False)))
 
     detail = firebase.get('/UI/career_result/detail_information', None)
     comment.append(detail)
@@ -351,8 +361,8 @@ def job_information():
 # 검사 후 _ 직업 선택(부정)
 @app.route('/job_select', methods = ['post'])
 def job_select():
-    req = request.get_json()
-    Uid = req['userRequest']['user']['id']
+    init()
+
     job = req['action']['detailParams']
 
     for i in range(0, 3):
@@ -364,14 +374,7 @@ def job_select():
 # 검사 후 _ 직업 점수 계산(부정)
 @app.route('/job_calculate', methods = ['post'])
 def job_calculate():
-    req = request.get_json()
-    Uid = req['userRequest']['user']['id']
-    context = req['contexts']
-    user = firebase.get('/User/' + Uid + "/name", None)
-
-    context_list = []
-    for c in context:
-        context_list.append(c['name'])
+    init()
 
     sum = 0
     number = req['action']['detailParams']
@@ -405,7 +408,7 @@ def job_calculate():
 
         comment = []
         comment.append(makeSimpleText("3가지 직업중 '" + rec_job + "' 직업을 가장 선호하시는군요. 잘 결정하셨네요^^ " + user + "님은 잘하실 수 있을 겁니다.\n\n이 직업의 간단한 정보를 안내해 드릴게요"))
-        comment.append(makeSimpleText(callAPI(job_code)))
+        comment.append(makeSimpleText(callAPI(job_code, False)))
 
         detail = firebase.get('/UI/career_result/detail_information', None)
         comment.append(detail)
@@ -424,14 +427,7 @@ def job_calculate():
 # 검사 후 _ 코칭
 @app.route('/coaching', methods = ['post'])
 def coaching():
-    req = request.get_json()
-    Uid = req['userRequest']['user']['id']
-    context = req['contexts']
-    user = firebase.get('/User/' + Uid + "/name", None)
-
-    context_list = []
-    for c in context:
-        context_list.append(c['name'])
+    init()
 
     if 'totalcareer' in context_list:
         comment = firebase.get('/UI/career_result/totalcareer', None)
